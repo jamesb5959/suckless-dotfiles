@@ -1,7 +1,10 @@
 #!/bin/sh
-wall=$(find ~/.config/wallpaper/ -type f \( -name "*.jpg" -o -name "*.png" \) | shuf -n 1)
+wall=$(
+	find ~/.config/wallpaper/ -type f \
+		\( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \) | shuf -n 1
+)
 
-xwallpaper --no-randr --tile "$wall"
+xwallpaper --no-randr --zoom "$wall"
 wal -c
 wal -i "$wall"
 printf '\r\n'
