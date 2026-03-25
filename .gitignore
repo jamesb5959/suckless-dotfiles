@@ -1,0 +1,9 @@
+src/*/.git/
+src/*/*.o
+src/*/config.h
+src/dwm/dwm
+src/dmenu/dmenu
+src/dmenu/stest
+src/st/st
+src/slock/slock
+src/slstatus/slstatus
