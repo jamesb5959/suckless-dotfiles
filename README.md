@@ -90,7 +90,7 @@ sudo ./start.sh --profile laptop --all
 ./start.sh --dry-run --profile pc --all
 ```
 
-`wal -i wallpaper/road.png` is intentionally part of the workflow because the current `dmenu` and `st` setup expects generated `pywal` files to exist on first build/install.
+`wal` is intentionally part of the workflow because the current `dmenu` and `st` setup expects generated `pywal` files to exist on first build/install.
 
 ## Session
 
@@ -133,4 +133,3 @@ Read `WIPE.sh` before using it.
 ## Notes
 
 - Some configs still expect `pywal` output under `~/.cache/wal/`.
-

@@ -1,4 +1,5 @@
 slstatus &
-exec /usr/local/bin/dwm &
-xwallpaper --no-randr --tile 005.jpg &
-picom
+wall=$(find "$HOME/.config/wallpaper" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \) | shuf -n 1)
+[ -n "${wall:-}" ] && xwallpaper --no-randr --zoom "$wall" &
+picom &
+exec /usr/local/bin/dwm

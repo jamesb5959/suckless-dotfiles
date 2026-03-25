@@ -112,11 +112,12 @@ ensure_asus_repo() {
 apply_wal() {
 	require_cmd wal
 	require_cmd xwallpaper
-	local wall="$SCRIPT_DIR/wallpaper/road.png"
-	[ -f "$wall" ] || die "Wallpaper not found: $wall"
+	local wall
 	run_as_target_user "mkdir -p \"$TARGET_HOME/.config/wallpaper\""
 	run_as_target_user "cp -af \"$SCRIPT_DIR/wallpaper\"/. \"$TARGET_HOME/.config/wallpaper/\""
-	run_as_target_user "xwallpaper --no-randr --tile \"$wall\""
+	wall=$(find "$SCRIPT_DIR/wallpaper" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \) | sort | head -n 1)
+	[ -n "$wall" ] || die "No wallpaper images found under $SCRIPT_DIR/wallpaper"
+	run_as_target_user "xwallpaper --no-randr --zoom \"$wall\""
 	run_as_target_user "wal -i \"$wall\""
 }
 

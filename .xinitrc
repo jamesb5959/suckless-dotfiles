@@ -11,7 +11,10 @@ if command -v slstatus >/dev/null 2>&1; then
 fi
 
 if command -v xwallpaper >/dev/null 2>&1; then
-	xwallpaper --no-randr --tile "$HOME/.config/wallpaper/road.png" &
+	wall=$(find "$HOME/.config/wallpaper" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \) | shuf -n 1)
+	if [ -n "${wall:-}" ]; then
+		xwallpaper --no-randr --zoom "$wall" &
+	fi
 fi
 
 if command -v xss-lock >/dev/null 2>&1 && command -v slock >/dev/null 2>&1; then
