@@ -7,4 +7,5 @@ wall=$(
 xwallpaper --no-randr --zoom "$wall"
 wal -c
 wal -i "$wall"
+pkill -USR1 dwm 2>/dev/null || true
 printf '\r\n'
