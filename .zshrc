@@ -1,6 +1,12 @@
 # If you come from bash you might have to change your $PATH.
 # export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 
+export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
+# append completions to fpath
+fpath=(${ASDF_DATA_DIR:-$HOME/.asdf}/completions $fpath)
+# initialise completions with ZSH's compinit
+autoload -Uz compinit && compinit
+
 # Path to your Oh My Zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
 
@@ -110,8 +116,18 @@ alias ls='ls --color=auto'
 alias vim='nvim'
 alias grep='grep --color=auto'
 alias unzip='bsdtar xvf'
-alias screenshot='ffmpeg -f x11grab -video_size 1920x1200 -i $DISPLAY -vframes 1 screen.png'
-alias screenrec='ffmpeg -video_size 1920x1200 -framerate 60 -f x11grab -i :0.0+ output.mp4'
+unalias screenshot 2>/dev/null
+unalias screenrec 2>/dev/null
+screenshot() {
+    local output_file="${1:-screenshot-$(date +%Y%m%d-%H%M%S).png}"
+    ffmpeg -f x11grab -video_size 3840x2160 -i "${DISPLAY:-:0.0}" -frames:v 1 -update 1 "$output_file"
+}
+
+screenrec() {
+    local output_file="${1:-screenrec-$(date +%Y%m%d-%H%M%S).mp4}"
+    ffmpeg -video_size 3840x2160 -framerate 60 -f x11grab -i "${DISPLAY:-:0.0}" \
+        -c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p "$output_file"
+}
 #for ly login manager. In ly the logout command doesn't work.
 # alias logout='pkill -KILL -u james'
 alias looking='looking-glass-client -F -S -f /dev/kvmfr0'
