@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 # VM lab helper for migrating an unencrypted Pop!_OS root filesystem to LUKS.
 # This is intentionally conservative. It does not delete the old root or resize
@@ -444,11 +444,15 @@ main() {
 
   [[ "$(get_fstype "$old_root")" != "crypto_LUKS" ]] || die "Old root already looks like a LUKS container."
 
+  status "Checking whether old root is mounted..."
   ensure_device_unmounted "$old_root" "old-root read-only migration"
+  status "Old root is not mounted."
   if [[ -e "$CRYPT_DEV" ]]; then
     die "$CRYPT_DEV already exists. Close it first with: cryptsetup close ${CRYPT_NAME}"
   fi
+  status "No existing ${CRYPT_DEV} mapping found."
 
+  status "Creating mount directories..."
   mkdir -p "$OLDROOT" "$NEWROOT"
 
   status "Mounting old root read-only at ${OLDROOT}"
