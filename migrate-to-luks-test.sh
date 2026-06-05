@@ -38,7 +38,7 @@ check_dependencies() {
   local missing=()
   local cmd
 
-  for cmd in cryptsetup rsync lsblk blkid findmnt mount umount chroot awk sed cp mkdir parted partprobe udevadm mkfs.ext4 df blockdev sfdisk; do
+  for cmd in cryptsetup rsync lsblk blkid findmnt mount umount chroot awk sed cp mkdir parted partprobe udevadm mkfs.ext4 df blockdev sfdisk swapon; do
     have_cmd "$cmd" || missing+=("$cmd")
   done
 
@@ -288,6 +288,30 @@ find_existing_target_partition() {
   return 1
 }
 
+stop_if_disk_in_use() {
+  local disk="$1"
+  local part mountpoint active_swap=0 active_mount=0
+
+  while read -r part; do
+    [[ -b "$part" ]] || continue
+
+    mountpoint="$(findmnt -rn --source "$part" -o TARGET 2>/dev/null || true)"
+    if [[ -n "$mountpoint" ]]; then
+      warn "$part is mounted at $mountpoint"
+      active_mount=1
+    fi
+
+    if swapon --noheadings --raw --show=NAME | awk -v p="$part" '$1 == p { found=1 } END { exit found ? 0 : 1 }'; then
+      warn "$part is active swap"
+      active_swap=1
+    fi
+  done < <(lsblk -nrpo NAME,TYPE "$disk" | awk '$2 == "part" { print $1 }')
+
+  if ((active_mount || active_swap)); then
+    die "Cannot change ${disk}'s partition table while partitions are mounted or active as swap. In the live ISO, unmount shown mountpoints and run 'sudo swapoff -a', then rerun this script. Do not use sfdisk --force."
+  fi
+}
+
 detect_old_root_candidates() {
   local tmp_base="/tmp/migrate-root-detect"
   local part
@@ -396,6 +420,7 @@ create_target_partition_from_free_space() {
 
   status "Unmounting old root before changing the partition table."
   umount "$OLDROOT"
+  stop_if_disk_in_use "$disk"
 
   local part_num target_part
   part_num="$(next_partition_number "$disk")"
