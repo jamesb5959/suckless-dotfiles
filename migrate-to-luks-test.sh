@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# VM lab helper for migrating an unencrypted Pop!_OS root filesystem to LUKS.
 # This is intentionally conservative. It does not delete the old root or resize
 # partitions. If unallocated space exists on the old root disk, it can create
 # the new LUKS target partition automatically.
