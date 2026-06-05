@@ -169,7 +169,12 @@ largest_free_region_mib() {
       }
       END {
         if (best_size > 0) {
-          printf "%.2f %.2f %.0f\n", best_start, best_end, best_size
+          aligned_start=int(best_start) + 2
+          aligned_end=int(best_end) - 1
+          aligned_size=aligned_end - aligned_start
+          if (aligned_size > 0) {
+            printf "%d %d %d\n", aligned_start, aligned_end, aligned_size
+          }
         }
       }
     '
@@ -253,7 +258,7 @@ create_target_partition_from_free_space() {
   required_size=$((old_used + 4096))
 
   status "Old root currently uses about ${old_used} MiB."
-  status "Largest free region is about ${free_size} MiB: ${free_start}MiB to ${free_end}MiB."
+  status "Largest usable aligned free region is about ${free_size} MiB: ${free_start}MiB to ${free_end}MiB."
   status "Required free space estimate is ${required_size} MiB, including 4096 MiB working room."
 
   if ((free_size < required_size)); then
@@ -277,7 +282,7 @@ create_target_partition_from_free_space() {
   [[ "$confirm" == "YES" ]] || die "Cancelled before partition creation."
 
   status "Creating partition ${target_part}"
-  parted -s "$disk" mkpart primary ext4 "${free_start}MiB" "${free_end}MiB"
+  parted -s -a optimal "$disk" mkpart primary ext4 "${free_start}MiB" "${free_end}MiB"
   partprobe "$disk" || true
   udevadm settle
 
