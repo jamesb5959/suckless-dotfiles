@@ -262,6 +262,32 @@ mounted_used_mib() {
   df -Pm "$mountpoint" | awk 'NR == 2 { print $3 }'
 }
 
+find_existing_target_partition() {
+  local disk="$1"
+  local old_root="$2"
+  local required_size="$3"
+  local part size_bytes size_mib fstype
+
+  while read -r part size_bytes fstype; do
+    [[ -b "$part" ]] || continue
+    [[ "$part" != "$old_root" ]] || continue
+    [[ "$(parent_disk_for_partition "$part")" == "$disk" ]] || continue
+    is_mounted "$part" && continue
+
+    size_mib=$((size_bytes / 1048576))
+    ((size_mib >= required_size)) || continue
+
+    # Prefer genuinely blank partitions. As a fallback, allow common lab-created
+    # filesystems only after the explicit destructive confirmation later.
+    if [[ -z "$fstype" || "$fstype" == "ext4" || "$fstype" == "xfs" || "$fstype" == "btrfs" ]]; then
+      printf '%s %s %s\n' "$part" "$size_mib" "${fstype:-none}"
+      return 0
+    fi
+  done < <(lsblk -brpno NAME,SIZE,FSTYPE "$disk" | awk 'NF >= 2 { print $1, $2, $3 }')
+
+  return 1
+}
+
 detect_old_root_candidates() {
   local tmp_base="/tmp/migrate-root-detect"
   local part
@@ -327,11 +353,12 @@ create_target_partition_from_free_space() {
   sfdisk --list-free "$disk" >&2
 
   local free_info
-  free_info="$(largest_free_region_sfdisk "$disk")"
-  [[ -n "$free_info" ]] || die "No unallocated free space found on $disk. Leave free space during install or shrink the old root from the live ISO, then rerun this script."
+  free_info="$(largest_free_region_sfdisk "$disk" || true)"
 
-  local free_start_sector free_end_sector free_size
-  read -r free_start_sector free_end_sector free_size <<<"$free_info"
+  local free_start_sector="" free_end_sector="" free_size=0
+  if [[ -n "$free_info" ]]; then
+    read -r free_start_sector free_end_sector free_size <<<"$free_info"
+  fi
 
   local old_used required_size
   old_used="$(mounted_used_mib "$OLDROOT")"
@@ -343,7 +370,28 @@ create_target_partition_from_free_space() {
   status "Required free space estimate is ${required_size} MiB, including 4096 MiB working room."
 
   if ((free_size < required_size)); then
-    die "Not enough unallocated space. Need at least ${required_size} MiB, found ${free_size} MiB."
+    warn "Not enough unallocated space. Need at least ${required_size} MiB, found ${free_size} MiB."
+    status "Looking for an existing unused partition large enough to use as the LUKS target..."
+
+    local existing_info existing_part existing_size existing_fstype
+    existing_info="$(find_existing_target_partition "$disk" "$old_root" "$required_size" || true)"
+    if [[ -z "$existing_info" ]]; then
+      die "No suitable unallocated gap or unused partition found. Run 'lsblk -f' and 'sudo sfdisk --list-free ${disk}' to inspect the VM disk."
+    fi
+
+    read -r existing_part existing_size existing_fstype <<<"$existing_info"
+    printf '\n' >&2
+    warn "Found existing candidate target partition: ${existing_part}"
+    warn "Size: ${existing_size} MiB"
+    warn "Filesystem: ${existing_fstype}"
+    warn "This partition will be erased later when LUKS is created."
+    read -r -p "Type YES to use ${existing_part} as the new LUKS target: " confirm
+    [[ "$confirm" == "YES" ]] || die "Cancelled before selecting existing target partition."
+
+    status "Unmounting old root before using existing target partition."
+    umount "$OLDROOT"
+    SELECTED_TARGET_PART="$existing_part"
+    return 0
   fi
 
   status "Unmounting old root before changing the partition table."
