@@ -38,7 +38,7 @@ check_dependencies() {
   local missing=()
   local cmd
 
-  for cmd in cryptsetup rsync lsblk blkid findmnt mount umount chroot awk sed cp mkdir parted partprobe udevadm mkfs.ext4 df blockdev sfdisk swapon; do
+  for cmd in cryptsetup rsync lsblk blkid findmnt mount umount chroot awk sed cp mkdir parted partprobe udevadm mkfs.ext4 df blockdev sfdisk swapon swapoff wipefs; do
     have_cmd "$cmd" || missing+=("$cmd")
   done
 
@@ -336,6 +336,39 @@ stop_if_disk_in_use() {
   if ((active_mount || active_swap)); then
     die "Cannot change ${disk}'s partition table while partitions are mounted or active as swap. In the live ISO, unmount shown mountpoints and run 'sudo swapoff -a', then rerun this script. Do not use sfdisk --force."
   fi
+}
+
+is_active_swap() {
+  local dev="$1"
+
+  swapon --noheadings --raw --show=NAME |
+    awk -v p="$dev" '$1 == p { found=1 } END { exit found ? 0 : 1 }'
+}
+
+prepare_target_for_luks() {
+  local target="$1"
+  local size_mib
+
+  status "Preparing target partition for LUKS: $target"
+  partprobe "$(parent_disk_for_partition "$target")" || true
+  udevadm settle
+
+  ensure_device_unmounted "$target" "LUKS formatting"
+
+  if is_active_swap "$target"; then
+    warn "$target is active swap. Disabling it before LUKS formatting."
+    swapoff "$target"
+  fi
+
+  size_mib="$(blockdev --getsize64 "$target")"
+  size_mib=$((size_mib / 1048576))
+  status "Target partition size: ${size_mib} MiB"
+  if ((size_mib < 1024)); then
+    die "$target is too small for a root migration target."
+  fi
+
+  status "Existing signatures on target, if any:"
+  wipefs "$target" >&2 || true
 }
 
 detect_old_root_candidates() {
@@ -669,7 +702,7 @@ main() {
   status "Using new LUKS target partition: $target_part"
   [[ "$old_root" != "$target_part" ]] || die "Old root and target partition must be different."
 
-  ensure_device_unmounted "$target_part" "LUKS formatting"
+  prepare_target_for_luks "$target_part"
 
   printf '\n'
   warn "The target partition will be erased: $target_part"
@@ -679,7 +712,7 @@ main() {
   [[ "$confirm" == "YES" ]] || die "Cancelled before destructive actions."
 
   status "Creating LUKS container on $target_part"
-  cryptsetup luksFormat "$target_part"
+  cryptsetup luksFormat --type luks2 "$target_part"
 
   status "Opening LUKS container as ${CRYPT_NAME}"
   cryptsetup open "$target_part" "$CRYPT_NAME"
