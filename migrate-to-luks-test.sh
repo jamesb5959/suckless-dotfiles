@@ -226,6 +226,32 @@ trailing_free_region() {
   fi
 }
 
+last_usable_sector() {
+  local disk="$1"
+  local fallback
+  fallback="$(($(blockdev --getsz "$disk") - 34))"
+
+  sfdisk -l "$disk" 2>/dev/null |
+    awk -v fallback="$fallback" '
+      /last usable sector is/ {
+        for (i = 1; i <= NF; i++) {
+          if ($i == "is" && (i + 1) <= NF && $(i + 1) ~ /^[0-9]+,?$/) {
+            value=$(i + 1)
+            gsub(/,/, "", value)
+            print value
+            found=1
+            exit
+          }
+        }
+      }
+      END {
+        if (!found) {
+          print fallback
+        }
+      }
+    '
+}
+
 largest_free_region_sfdisk() {
   local disk="$1"
   local sector_size
@@ -436,9 +462,24 @@ create_target_partition_from_free_space() {
   [[ "$confirm" == "YES" ]] || die "Cancelled before partition creation."
 
   status "Creating partition ${target_part}"
-  local new_size_sectors
+  local new_size_sectors usable_end
+  usable_end="$(last_usable_sector "$disk")"
+  if ((free_end_sector > usable_end)); then
+    warn "Clamping end sector from ${free_end_sector}s to GPT last usable sector ${usable_end}s."
+    free_end_sector="$usable_end"
+  fi
+
+  if ((free_start_sector >= free_end_sector)); then
+    die "Invalid free sector range: start ${free_start_sector}s, end ${free_end_sector}s."
+  fi
+
   new_size_sectors=$((free_end_sector - free_start_sector + 1))
-  printf '%s,%s,L\n' "$free_start_sector" "$new_size_sectors" | sfdisk --append "$disk"
+  if ((new_size_sectors <= 0)); then
+    die "Invalid new partition size: ${new_size_sectors} sectors."
+  fi
+
+  status "sfdisk request: start=${free_start_sector}, size=${new_size_sectors}, end=${free_end_sector}"
+  printf 'start=%s, size=%s, type=L\n' "$free_start_sector" "$new_size_sectors" | sfdisk --append "$disk"
   partprobe "$disk" || true
   udevadm settle
 
