@@ -38,7 +38,7 @@ check_dependencies() {
   local missing=()
   local cmd
 
-  for cmd in cryptsetup rsync lsblk blkid findmnt mount umount chroot awk sed cp mkdir parted partprobe udevadm mkfs.ext4 df; do
+  for cmd in cryptsetup rsync lsblk blkid findmnt mount umount chroot awk sed cp mkdir parted partprobe udevadm mkfs.ext4 df blockdev; do
     have_cmd "$cmd" || missing+=("$cmd")
   done
 
@@ -145,11 +145,13 @@ next_partition_number() {
     '
 }
 
-largest_free_region_mib() {
+largest_free_region() {
   local disk="$1"
+  local sector_size
+  sector_size="$(blockdev --getss "$disk")"
 
-  parted -m "$disk" unit MiB print free |
-    awk -F: '
+  parted -m "$disk" unit s print free |
+    awk -F: -v sector_size="$sector_size" '
       {
         last=$NF
         gsub(/;/, "", last)
@@ -158,9 +160,9 @@ largest_free_region_mib() {
         start=$1
         end=$2
         size=$3
-        gsub(/MiB/, "", start)
-        gsub(/MiB/, "", end)
-        gsub(/MiB/, "", size)
+        gsub(/s/, "", start)
+        gsub(/s/, "", end)
+        gsub(/s/, "", size)
         if (size + 0 > best_size) {
           best_size=size + 0
           best_start=start + 0
@@ -169,11 +171,16 @@ largest_free_region_mib() {
       }
       END {
         if (best_size > 0) {
-          aligned_start=int(best_start) + 2
-          aligned_end=int(best_end) - 1
-          aligned_size=aligned_end - aligned_start
-          if (aligned_size > 0) {
-            printf "%d %d %d\n", aligned_start, aligned_end, aligned_size
+          align=2048
+          aligned_start=int((best_start + align - 1) / align) * align
+          aligned_end=int((best_end + 1) / align) * align - 1
+          if (aligned_end > best_end) {
+            aligned_end -= align
+          }
+          aligned_size_sectors=aligned_end - aligned_start + 1
+          aligned_size_mib=int((aligned_size_sectors * sector_size) / 1048576)
+          if (aligned_size_sectors > 0 && aligned_size_mib > 0) {
+            printf "%d %d %d\n", aligned_start, aligned_end, aligned_size_mib
           }
         }
       }
@@ -247,18 +254,19 @@ create_target_partition_from_free_space() {
   parted "$disk" unit MiB print free >&2
 
   local free_info
-  free_info="$(largest_free_region_mib "$disk")"
+  free_info="$(largest_free_region "$disk")"
   [[ -n "$free_info" ]] || die "No unallocated free space found on $disk. Create free space first, then rerun this script."
 
-  local free_start free_end free_size
-  read -r free_start free_end free_size <<<"$free_info"
+  local free_start_sector free_end_sector free_size
+  read -r free_start_sector free_end_sector free_size <<<"$free_info"
 
   local old_used required_size
   old_used="$(mounted_used_mib "$OLDROOT")"
   required_size=$((old_used + 4096))
 
   status "Old root currently uses about ${old_used} MiB."
-  status "Largest usable aligned free region is about ${free_size} MiB: ${free_start}MiB to ${free_end}MiB."
+  status "Largest usable aligned free region is about ${free_size} MiB."
+  status "Sector range: ${free_start_sector}s to ${free_end_sector}s."
   status "Required free space estimate is ${required_size} MiB, including 4096 MiB working room."
 
   if ((free_size < required_size)); then
@@ -275,14 +283,14 @@ create_target_partition_from_free_space() {
   printf '\n' >&2
   warn "This will create a new partition on $disk using unallocated space."
   warn "New partition: $target_part"
-  warn "Start: ${free_start}MiB"
-  warn "End: ${free_end}MiB"
+  warn "Start sector: ${free_start_sector}s"
+  warn "End sector: ${free_end_sector}s"
   warn "No existing partition should be erased by this step, but partition table changes are still destructive if the wrong disk is selected."
   read -r -p "Type YES to create ${target_part}: " confirm
   [[ "$confirm" == "YES" ]] || die "Cancelled before partition creation."
 
   status "Creating partition ${target_part}"
-  parted -s -a optimal "$disk" mkpart primary ext4 "${free_start}MiB" "${free_end}MiB"
+  parted -s "$disk" mkpart primary ext4 "${free_start_sector}s" "${free_end_sector}s"
   partprobe "$disk" || true
   udevadm settle
 
