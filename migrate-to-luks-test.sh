@@ -11,6 +11,8 @@ NEWROOT="/mnt/newroot"
 CRYPT_NAME="cryptroot"
 CRYPT_DEV="/dev/mapper/${CRYPT_NAME}"
 
+trap 'printf "[migrate] ERROR: command failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
+
 status() {
   printf '[migrate] %s\n' "$*" >&2
 }
@@ -430,6 +432,8 @@ main() {
 
   local old_root target_part
   old_root="$(select_old_root)"
+  status "Using old root partition: $old_root"
+  status "Old root filesystem type: $(get_fstype "$old_root")"
 
   [[ "$(get_fstype "$old_root")" != "crypto_LUKS" ]] || die "Old root already looks like a LUKS container."
 
@@ -442,8 +446,10 @@ main() {
 
   status "Mounting old root read-only at ${OLDROOT}"
   mount -o ro "$old_root" "$OLDROOT"
+  status "Old root mounted successfully."
 
   target_part="$(create_target_partition_from_free_space "$old_root")"
+  status "Using new LUKS target partition: $target_part"
   [[ "$old_root" != "$target_part" ]] || die "Old root and target partition must be different."
 
   ensure_device_unmounted "$target_part" "LUKS formatting"
