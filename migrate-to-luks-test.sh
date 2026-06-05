@@ -226,6 +226,36 @@ trailing_free_region() {
   fi
 }
 
+largest_free_region_sfdisk() {
+  local disk="$1"
+  local sector_size
+  sector_size="$(blockdev --getss "$disk")"
+
+  sfdisk --list-free -o Start,Sectors "$disk" |
+    awk -v sector_size="$sector_size" '
+      $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ {
+        start=$1 + 0
+        sectors=$2 + 0
+        align=2048
+        aligned_start=int((start + align - 1) / align) * align
+        skipped=aligned_start - start
+        aligned_sectors=sectors - skipped
+        aligned_sectors=int(aligned_sectors / align) * align
+        if (aligned_sectors > best_sectors) {
+          best_start=aligned_start
+          best_sectors=aligned_sectors
+        }
+      }
+      END {
+        if (best_sectors > 0) {
+          end=best_start + best_sectors - 1
+          size_mib=int((best_sectors * sector_size) / 1048576)
+          printf "%d %d %d\n", best_start, end, size_mib
+        }
+      }
+    '
+}
+
 mounted_used_mib() {
   local mountpoint="$1"
 
@@ -289,14 +319,16 @@ create_target_partition_from_free_space() {
   local disk
   disk="$(parent_disk_for_partition "$old_root")"
 
-  status "Looking for trailing unallocated space on $disk"
+  status "Looking for unallocated space on $disk"
   parted "$disk" unit MiB print free >&2
   status "Machine-readable free-space table:"
   parted -m "$disk" unit s print free >&2
+  status "sfdisk free-space table:"
+  sfdisk --list-free "$disk" >&2
 
   local free_info
-  free_info="$(trailing_free_region "$disk")"
-  [[ -n "$free_info" ]] || die "No trailing unallocated free space found on $disk. Leave free space at the end of the disk, then rerun this script."
+  free_info="$(largest_free_region_sfdisk "$disk")"
+  [[ -n "$free_info" ]] || die "No unallocated free space found on $disk. Leave free space during install or shrink the old root from the live ISO, then rerun this script."
 
   local free_start_sector free_end_sector free_size
   read -r free_start_sector free_end_sector free_size <<<"$free_info"
