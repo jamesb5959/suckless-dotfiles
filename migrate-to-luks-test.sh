@@ -71,7 +71,7 @@ ensure_device_unmounted() {
   local mountpoint
 
   mountpoint="$(mountpoint_for_device "$dev" || true)"
-  [[ -n "$mountpoint" ]] || return
+  [[ -n "$mountpoint" ]] || return 0
 
   if [[ "$mountpoint" == "/" ]]; then
     die "$dev is mounted as /. You are booted into the installed system, not the live ISO. Shut down and boot with ./start_iso.sh, then choose the live/demo environment."
@@ -100,7 +100,7 @@ read_partition() {
     read -r -p "$prompt" value
     if [[ "$value" == /dev/* ]] && is_block_device "$value"; then
       printf '%s\n' "$value"
-      return
+      return 0
     fi
     printf 'Enter a real block partition path, for example /dev/vda3.\n' >&2
   done
@@ -295,7 +295,7 @@ detect_efi_partition() {
   candidate="$(lsblk -rpno NAME,FSTYPE,PARTTYPE | awk 'tolower($2)=="vfat" && tolower($3)=="c12a7328-f81f-11d2-ba4b-00a0c93ec93b" {print $1; exit}')"
   if [[ -n "$candidate" ]]; then
     printf '%s\n' "$candidate"
-    return
+    return 0
   fi
 
   # Fall back to the first vfat partition. The user still gets a visible status line.
@@ -434,9 +434,6 @@ main() {
 
   local old_root target_part
   select_old_root
-  printf '[migrate] CHECKPOINT: returned from root selection\n'
-  printf '[migrate] CHECKPOINT: SELECTED_OLD_ROOT=%s\n' "$SELECTED_OLD_ROOT"
-  printf '[migrate] CHECKPOINT stderr: returned from root selection\n' >&2
   old_root="$SELECTED_OLD_ROOT"
   [[ -n "$old_root" ]] || die "Could not select an old root partition."
   status "Using old root partition: $old_root"
