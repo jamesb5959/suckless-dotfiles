@@ -38,7 +38,7 @@ check_dependencies() {
   local missing=()
   local cmd
 
-  for cmd in cryptsetup rsync lsblk blkid findmnt mount umount chroot awk sed cp mkdir parted partprobe udevadm mkfs.ext4 df blockdev; do
+  for cmd in cryptsetup rsync lsblk blkid findmnt mount umount chroot awk sed cp mkdir parted partprobe udevadm mkfs.ext4 df blockdev sfdisk; do
     have_cmd "$cmd" || missing+=("$cmd")
   done
 
@@ -195,32 +195,35 @@ largest_free_region() {
 
 trailing_free_region() {
   local disk="$1"
-  local sector_size total_sectors
+  local sector_size total_sectors disk_name sys_disk
   sector_size="$(blockdev --getss "$disk")"
   total_sectors="$(blockdev --getsz "$disk")"
+  disk_name="$(basename "$disk")"
+  sys_disk="/sys/block/${disk_name}"
+  [[ -d "$sys_disk" ]] || die "Could not inspect kernel partition data at $sys_disk"
 
-  lsblk -b -nrpo NAME,TYPE,START,SIZE "$disk" |
-    awk -v sector_size="$sector_size" -v total_sectors="$total_sectors" '
-      $2 == "part" && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ {
-        part_start=$3 + 0
-        part_size_bytes=$4 + 0
-        part_sectors=int((part_size_bytes + sector_size - 1) / sector_size)
-        part_end=part_start + part_sectors - 1
-        if (part_end > max_end) {
-          max_end=part_end
-        }
-      }
-      END {
-        align=2048
-        start=int((max_end + 1 + align - 1) / align) * align
-        end=total_sectors - 34
-        size_sectors=end - start + 1
-        size_mib=int((size_sectors * sector_size) / 1048576)
-        if (size_sectors > 0 && size_mib > 0) {
-          printf "%d %d %d\n", start, end, size_mib
-        }
-      }
-    '
+  local max_end=0 part_dir part_start part_size part_end
+  for part_dir in "${sys_disk}/${disk_name}"*; do
+    [[ -f "${part_dir}/start" && -f "${part_dir}/size" ]] || continue
+    part_start="$(<"${part_dir}/start")"
+    part_size="$(<"${part_dir}/size")"
+    [[ "$part_start" =~ ^[0-9]+$ && "$part_size" =~ ^[0-9]+$ ]] || continue
+    part_end=$((part_start + part_size - 1))
+    if ((part_end > max_end)); then
+      max_end="$part_end"
+    fi
+  done
+
+  local align=2048
+  local start end size_sectors size_mib
+  start=$((((max_end + 1 + align - 1) / align) * align))
+  end=$((total_sectors - 34))
+  size_sectors=$((end - start + 1))
+  size_mib=$(((size_sectors * sector_size) / 1048576))
+
+  if ((size_sectors > 0 && size_mib > 0)); then
+    printf '%d %d %d\n' "$start" "$end" "$size_mib"
+  fi
 }
 
 mounted_used_mib() {
@@ -328,7 +331,9 @@ create_target_partition_from_free_space() {
   [[ "$confirm" == "YES" ]] || die "Cancelled before partition creation."
 
   status "Creating partition ${target_part}"
-  parted -s "$disk" mkpart primary ext4 "${free_start_sector}s" "${free_end_sector}s"
+  local new_size_sectors
+  new_size_sectors=$((free_end_sector - free_start_sector + 1))
+  printf '%s,%s,L\n' "$free_start_sector" "$new_size_sectors" | sfdisk --append "$disk"
   partprobe "$disk" || true
   udevadm settle
 
