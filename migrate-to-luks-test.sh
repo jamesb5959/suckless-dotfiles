@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+set -euo pipefail
 
 # VM lab helper for migrating an unencrypted Pop!_OS root filesystem to LUKS.
 # This is intentionally conservative. It does not delete the old root or resize
@@ -12,8 +12,6 @@ CRYPT_NAME="cryptroot"
 CRYPT_DEV="/dev/mapper/${CRYPT_NAME}"
 SELECTED_OLD_ROOT=""
 SELECTED_TARGET_PART=""
-
-trap 'printf "[migrate] ERROR: command failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 status() {
   printf '[migrate] %s\n' "$*" >&2
@@ -71,24 +69,24 @@ ensure_device_unmounted() {
   local mountpoint=""
   local mount_output=""
 
-  set +e
-  mount_output="$(mountpoint_for_device "$dev" 2>/dev/null)"
-  set -e
+  if ! mount_output="$(mountpoint_for_device "$dev" 2>/dev/null)"; then
+    mount_output=""
+  fi
 
   mountpoint="${mount_output%%$'\n'*}"
-  if [[ -z "$mountpoint" ]]; then
-    return 0
+  if [[ -n "$mountpoint" ]]; then
+    if [[ "$mountpoint" == "/" ]]; then
+      die "$dev is mounted as /. You are booted into the installed system, not the live ISO. Shut down and boot with ./start_iso.sh, then choose the live/demo environment."
+    fi
+
+    warn "$dev is currently mounted at $mountpoint."
+    warn "For $purpose, it needs to be unmounted first."
+    read -r -p "Type YES to unmount ${dev} from ${mountpoint}: " confirm
+    [[ "$confirm" == "YES" ]] || die "Cancelled because $dev is mounted."
+    umount "$mountpoint"
   fi
 
-  if [[ "$mountpoint" == "/" ]]; then
-    die "$dev is mounted as /. You are booted into the installed system, not the live ISO. Shut down and boot with ./start_iso.sh, then choose the live/demo environment."
-  fi
-
-  warn "$dev is currently mounted at $mountpoint."
-  warn "For $purpose, it needs to be unmounted first."
-  read -r -p "Type YES to unmount ${dev} from ${mountpoint}: " confirm
-  [[ "$confirm" == "YES" ]] || die "Cancelled because $dev is mounted."
-  umount "$mountpoint"
+  true
 }
 
 get_uuid() {
