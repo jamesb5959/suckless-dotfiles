@@ -69,13 +69,16 @@ ensure_device_unmounted() {
   local dev="$1"
   local purpose="$2"
   local mountpoint=""
-  local -a mountpoints=()
+  local mount_output=""
 
-  mapfile -t mountpoints < <(mountpoint_for_device "$dev" || true)
-  if ((${#mountpoints[@]} == 0)); then
+  set +e
+  mount_output="$(mountpoint_for_device "$dev" 2>/dev/null)"
+  set -e
+
+  mountpoint="${mount_output%%$'\n'*}"
+  if [[ -z "$mountpoint" ]]; then
     return 0
   fi
-  mountpoint="${mountpoints[0]}"
 
   if [[ "$mountpoint" == "/" ]]; then
     die "$dev is mounted as /. You are booted into the installed system, not the live ISO. Shut down and boot with ./start_iso.sh, then choose the live/demo environment."
