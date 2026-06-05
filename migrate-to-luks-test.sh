@@ -157,9 +157,15 @@ largest_free_region() {
         gsub(/;/, "", last)
       }
       tolower(last) ~ /free/ {
-        start=$1
-        end=$2
-        size=$3
+        if ($1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+s$/) {
+          start=$2
+          end=$3
+          size=$4
+        } else {
+          start=$1
+          end=$2
+          size=$3
+        }
         gsub(/s/, "", start)
         gsub(/s/, "", end)
         gsub(/s/, "", size)
@@ -252,6 +258,8 @@ create_target_partition_from_free_space() {
 
   status "Looking for unallocated space on $disk"
   parted "$disk" unit MiB print free >&2
+  status "Machine-readable free-space table:"
+  parted -m "$disk" unit s print free >&2
 
   local free_info
   free_info="$(largest_free_region "$disk")"
