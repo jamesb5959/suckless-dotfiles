@@ -54,7 +54,7 @@ is_block_device() {
 }
 
 is_mounted() {
-  findmnt -rn --target "$1" >/dev/null 2>&1
+  findmnt -rn --source "$1" >/dev/null 2>&1
 }
 
 mountpoint_for_device() {
