@@ -57,6 +57,29 @@ is_mounted() {
   findmnt -rn --target "$1" >/dev/null 2>&1
 }
 
+mountpoint_for_device() {
+  findmnt -rn --source "$1" -o TARGET | head -n1
+}
+
+ensure_device_unmounted() {
+  local dev="$1"
+  local purpose="$2"
+  local mountpoint
+
+  mountpoint="$(mountpoint_for_device "$dev" || true)"
+  [[ -n "$mountpoint" ]] || return
+
+  if [[ "$mountpoint" == "/" ]]; then
+    die "$dev is mounted as /. You are booted into the installed system, not the live ISO. Shut down and boot with ./start_iso.sh, then choose the live/demo environment."
+  fi
+
+  warn "$dev is currently mounted at $mountpoint."
+  warn "For $purpose, it needs to be unmounted first."
+  read -r -p "Type YES to unmount ${dev} from ${mountpoint}: " confirm
+  [[ "$confirm" == "YES" ]] || die "Cancelled because $dev is mounted."
+  umount "$mountpoint"
+}
+
 get_uuid() {
   blkid -s UUID -o value "$1"
 }
@@ -410,9 +433,7 @@ main() {
 
   [[ "$(get_fstype "$old_root")" != "crypto_LUKS" ]] || die "Old root already looks like a LUKS container."
 
-  if is_mounted "$old_root"; then
-    die "$old_root is already mounted. Unmount it before continuing."
-  fi
+  ensure_device_unmounted "$old_root" "old-root read-only migration"
   if [[ -e "$CRYPT_DEV" ]]; then
     die "$CRYPT_DEV already exists. Close it first with: cryptsetup close ${CRYPT_NAME}"
   fi
@@ -425,9 +446,7 @@ main() {
   target_part="$(create_target_partition_from_free_space "$old_root")"
   [[ "$old_root" != "$target_part" ]] || die "Old root and target partition must be different."
 
-  if is_mounted "$target_part"; then
-    die "$target_part is already mounted. Unmount it before continuing."
-  fi
+  ensure_device_unmounted "$target_part" "LUKS formatting"
 
   printf '\n'
   warn "The target partition will be erased: $target_part"
