@@ -10,6 +10,8 @@ OLDROOT="/mnt/oldroot"
 NEWROOT="/mnt/newroot"
 CRYPT_NAME="cryptroot"
 CRYPT_DEV="/dev/mapper/${CRYPT_NAME}"
+SELECTED_OLD_ROOT=""
+SELECTED_TARGET_PART=""
 
 trap 'printf "[migrate] ERROR: command failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
@@ -204,7 +206,7 @@ select_old_root() {
 
   if ((${#candidates[@]} == 1)); then
     status "Detected old root candidate: ${candidates[0]}"
-    printf '%s\n' "${candidates[0]}"
+    SELECTED_OLD_ROOT="${candidates[0]}"
     return
   fi
 
@@ -218,12 +220,12 @@ select_old_root() {
     local choice
     read -r choice
     if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#candidates[@]})); then
-      printf '%s\n' "${candidates[$((choice - 1))]}"
+      SELECTED_OLD_ROOT="${candidates[$((choice - 1))]}"
       return
     fi
   fi
 
-  read_partition "Old unencrypted root partition, for example /dev/vda3: "
+  SELECTED_OLD_ROOT="$(read_partition "Old unencrypted root partition, for example /dev/vda3: ")"
 }
 
 create_target_partition_from_free_space() {
@@ -283,7 +285,7 @@ create_target_partition_from_free_space() {
   done
 
   [[ -b "$target_part" ]] || die "Created partition was not detected as $target_part"
-  printf '%s\n' "$target_part"
+  SELECTED_TARGET_PART="$target_part"
 }
 
 detect_efi_partition() {
@@ -431,7 +433,9 @@ main() {
   printf '\n'
 
   local old_root target_part
-  old_root="$(select_old_root)"
+  select_old_root
+  old_root="$SELECTED_OLD_ROOT"
+  [[ -n "$old_root" ]] || die "Could not select an old root partition."
   status "Using old root partition: $old_root"
   status "Old root filesystem type: $(get_fstype "$old_root")"
 
@@ -448,7 +452,9 @@ main() {
   mount -o ro "$old_root" "$OLDROOT"
   status "Old root mounted successfully."
 
-  target_part="$(create_target_partition_from_free_space "$old_root")"
+  create_target_partition_from_free_space "$old_root"
+  target_part="$SELECTED_TARGET_PART"
+  [[ -n "$target_part" ]] || die "Could not create or select a target partition."
   status "Using new LUKS target partition: $target_part"
   [[ "$old_root" != "$target_part" ]] || die "Old root and target partition must be different."
 
