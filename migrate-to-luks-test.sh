@@ -207,7 +207,7 @@ select_old_root() {
   if ((${#candidates[@]} == 1)); then
     status "Detected old root candidate: ${candidates[0]}"
     SELECTED_OLD_ROOT="${candidates[0]}"
-    return
+    return 0
   fi
 
   if ((${#candidates[@]} > 1)); then
@@ -221,7 +221,7 @@ select_old_root() {
     read -r choice
     if [[ "$choice" =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#candidates[@]})); then
       SELECTED_OLD_ROOT="${candidates[$((choice - 1))]}"
-      return
+      return 0
     fi
   fi
 
@@ -434,6 +434,9 @@ main() {
 
   local old_root target_part
   select_old_root
+  printf '[migrate] CHECKPOINT: returned from root selection\n'
+  printf '[migrate] CHECKPOINT: SELECTED_OLD_ROOT=%s\n' "$SELECTED_OLD_ROOT"
+  printf '[migrate] CHECKPOINT stderr: returned from root selection\n' >&2
   old_root="$SELECTED_OLD_ROOT"
   [[ -n "$old_root" ]] || die "Could not select an old root partition."
   status "Using old root partition: $old_root"
