@@ -193,6 +193,36 @@ largest_free_region() {
     '
 }
 
+trailing_free_region() {
+  local disk="$1"
+  local sector_size total_sectors
+  sector_size="$(blockdev --getss "$disk")"
+  total_sectors="$(blockdev --getsz "$disk")"
+
+  lsblk -b -nrpo NAME,TYPE,START,SIZE "$disk" |
+    awk -v sector_size="$sector_size" -v total_sectors="$total_sectors" '
+      $2 == "part" && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ {
+        part_start=$3 + 0
+        part_size_bytes=$4 + 0
+        part_sectors=int((part_size_bytes + sector_size - 1) / sector_size)
+        part_end=part_start + part_sectors - 1
+        if (part_end > max_end) {
+          max_end=part_end
+        }
+      }
+      END {
+        align=2048
+        start=int((max_end + 1 + align - 1) / align) * align
+        end=total_sectors - 34
+        size_sectors=end - start + 1
+        size_mib=int((size_sectors * sector_size) / 1048576)
+        if (size_sectors > 0 && size_mib > 0) {
+          printf "%d %d %d\n", start, end, size_mib
+        }
+      }
+    '
+}
+
 mounted_used_mib() {
   local mountpoint="$1"
 
@@ -256,14 +286,14 @@ create_target_partition_from_free_space() {
   local disk
   disk="$(parent_disk_for_partition "$old_root")"
 
-  status "Looking for unallocated space on $disk"
+  status "Looking for trailing unallocated space on $disk"
   parted "$disk" unit MiB print free >&2
   status "Machine-readable free-space table:"
   parted -m "$disk" unit s print free >&2
 
   local free_info
-  free_info="$(largest_free_region "$disk")"
-  [[ -n "$free_info" ]] || die "No unallocated free space found on $disk. Create free space first, then rerun this script."
+  free_info="$(trailing_free_region "$disk")"
+  [[ -n "$free_info" ]] || die "No trailing unallocated free space found on $disk. Leave free space at the end of the disk, then rerun this script."
 
   local free_start_sector free_end_sector free_size
   read -r free_start_sector free_end_sector free_size <<<"$free_info"
