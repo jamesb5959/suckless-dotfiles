@@ -124,7 +124,10 @@ partition_path() {
 
 parent_disk_for_partition() {
   local part="$1"
-  local pkname
+  local pkname dev_type
+
+  dev_type="$(lsblk -no TYPE "$part" | head -n1)"
+  [[ "$dev_type" == "part" ]] || die "$part is not a partition. Choose a partition like /dev/vda3, not a whole disk like /dev/vda."
 
   pkname="$(lsblk -no PKNAME "$part" | head -n1)"
   [[ -n "$pkname" ]] || die "Could not determine parent disk for $part"
@@ -292,10 +295,11 @@ find_existing_target_partition() {
   local disk="$1"
   local old_root="$2"
   local required_size="$3"
-  local part size_bytes size_mib fstype
+  local part dev_type size_bytes size_mib fstype
 
-  while read -r part size_bytes fstype; do
+  while read -r part dev_type size_bytes fstype; do
     [[ -b "$part" ]] || continue
+    [[ "$dev_type" == "part" ]] || continue
     [[ "$part" != "$old_root" ]] || continue
     [[ "$(parent_disk_for_partition "$part")" == "$disk" ]] || continue
     is_mounted "$part" && continue
@@ -309,7 +313,7 @@ find_existing_target_partition() {
       printf '%s %s %s\n' "$part" "$size_mib" "${fstype:-none}"
       return 0
     fi
-  done < <(lsblk -brpno NAME,SIZE,FSTYPE "$disk" | awk 'NF >= 2 { print $1, $2, $3 }')
+  done < <(lsblk -brpno NAME,TYPE,SIZE,FSTYPE "$disk" | awk 'NF >= 3 { print $1, $2, $3, $4 }')
 
   return 1
 }
