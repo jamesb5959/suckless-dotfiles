@@ -318,6 +318,53 @@ find_existing_target_partition() {
   return 1
 }
 
+select_manual_target_partition() {
+  local disk="$1"
+  local old_root="$2"
+  local required_size="$3"
+  local target="" parent="" dev_type="" size_bytes="" size_mib="" fstype=""
+
+  warn "Automatic target selection failed."
+  status "Current block devices:"
+  lsblk -f >&2
+  printf '\n' >&2
+  status "Partitions on ${disk}:"
+  lsblk -brpno NAME,TYPE,SIZE,FSTYPE,MOUNTPOINT "$disk" >&2
+  printf '\n' >&2
+
+  read -r -p "Type the existing target partition to erase for LUKS, or press Enter to cancel: " target
+  [[ -n "$target" ]] || die "No suitable unallocated gap or unused partition found."
+  [[ -b "$target" ]] || die "$target is not a block device."
+
+  dev_type="$(lsblk -no TYPE "$target" | head -n1)"
+  [[ "$dev_type" == "part" ]] || die "$target is not a partition. Use a partition like /dev/vda4, not /dev/vda."
+  [[ "$target" != "$old_root" ]] || die "Target partition cannot be the old root partition."
+
+  parent="$(parent_disk_for_partition "$target")"
+  [[ "$parent" == "$disk" ]] || die "$target is on $parent, but old root is on $disk."
+
+  if is_mounted "$target"; then
+    die "$target is mounted. Unmount it before using it as the LUKS target."
+  fi
+
+  size_bytes="$(blockdev --getsize64 "$target")"
+  size_mib=$((size_bytes / 1048576))
+  fstype="$(get_fstype "$target")"
+
+  status "Manual target partition: $target"
+  status "Target size: ${size_mib} MiB"
+  status "Target filesystem: ${fstype:-none}"
+  if ((size_mib < required_size)); then
+    die "$target is too small. Need at least ${required_size} MiB, found ${size_mib} MiB."
+  fi
+
+  warn "$target will be erased later when LUKS is created."
+  read -r -p "Type YES to select ${target} as the LUKS target: " confirm
+  [[ "$confirm" == "YES" ]] || die "Cancelled before selecting manual target partition."
+
+  SELECTED_TARGET_PART="$target"
+}
+
 stop_if_disk_in_use() {
   local disk="$1"
   local part mountpoint active_swap=0 active_mount=0
@@ -463,7 +510,10 @@ create_target_partition_from_free_space() {
     local existing_info existing_part existing_size existing_fstype
     existing_info="$(find_existing_target_partition "$disk" "$old_root" "$required_size" || true)"
     if [[ -z "$existing_info" ]]; then
-      die "No suitable unallocated gap or unused partition found. Run 'lsblk -f' and 'sudo sfdisk --list-free ${disk}' to inspect the VM disk."
+      select_manual_target_partition "$disk" "$old_root" "$required_size"
+      status "Unmounting old root before using manual target partition."
+      umount "$OLDROOT"
+      return 0
     fi
 
     read -r existing_part existing_size existing_fstype <<<"$existing_info"
